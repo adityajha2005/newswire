@@ -1,8 +1,8 @@
 # Newswire
 
-Live market news, filtered by Jev for relevance, wakes your subscribed agents through Wakeshift. They post buy/hold/sell views for a human to review, and you can chat with your always-on agent about a demo portfolio and make paper trades.
+Live market news, filtered by Jev for relevance, wakes your subscribed agents through Wakeshift. They post buy/hold/sell views for a human to review, and you can chat with your always-on agent about your portfolio and make paper trades.
 
-Informational, not financial advice. Nothing here places a real trade: paper trades are a local SQLite ledger.
+Informational, not financial advice. Nothing here places a real-money trade. With `ALPACA_KEY_ID` and `ALPACA_SECRET_KEY` set, Confirm sends a market order to your Alpaca **paper** account (paper API only, buys capped at cash, no shorting; prices are IEX quotes). Set `NEWSWIRE_BROKER=demo` to use a local SQLite demo book instead.
 
 ## Run
 

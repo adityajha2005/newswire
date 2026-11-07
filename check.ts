@@ -702,6 +702,14 @@ Object.assign(tests, {
       assert.deepEqual(m.picks, [{ ticker: "NVDA", view: "buy", confidence: 0.6, reasons: good(id).reasons, storyIds: [id] }])
     } finally { a.stop() }
   },
+  "pages: the chat's and the review page's scripts compile": async () => {
+    const { Script } = await import("node:vm")
+    for (const f of ["chat.html", "index.html"]) {
+      const html = readFileSync(new URL(`./${f}`, import.meta.url), "utf8")
+      const js = /<script nonce="%NONCE%">([\s\S]*?)<\/script>/.exec(html)![1]
+      assert.doesNotThrow(() => new Script(js, { filename: f }), `${f} script`)
+    }
+  },
   "chat: the page and its writes are this machine's own page only; /chat has a nonce CSP": async () => {
     const a = await newswire({ withChat: true })
     try {
