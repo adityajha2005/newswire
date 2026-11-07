@@ -71,6 +71,17 @@ a { color: var(--accent); }
 .hrow .t { display: flex; align-items: center; gap: 7px; }
 .hrow .s { display: block; font-size: 12px; color: var(--muted); }
 .hrow .v { text-align: right; font-size: 13px; }
+.group { display: flex; flex-direction: column; gap: 2px; }
+.group + .group { margin-top: 14px; }
+.group > .label { padding: 0 8px 4px; display: flex; justify-content: space-between; }
+.srow { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px; font-size: 13px; }
+.srow .s { display: block; font-size: 12px; color: var(--muted); }
+.srow .v { text-align: right; }
+.orow { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 8px; border-radius: 8px; background: var(--sunk); font-size: 13px; }
+.orow + .orow { margin-top: 4px; }
+.orow .s { grid-column: 1; font-size: 12px; color: var(--muted); }
+.orow button { grid-row: 1 / span 2; grid-column: 2; font-size: 12px; padding: 4px 8px; }
+.pend { font-size: 11px; font-weight: 600; color: var(--hold); }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
 .note { font-size: 12px; line-height: 1.5; color: var(--muted); padding: 0 8px; margin: auto 0 0; }
 
@@ -186,8 +197,7 @@ code { font: 12px/1.5 var(--mono); background: var(--sunk); padding: 1px 5px; bo
   .side .head { padding: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .total { font-size: 18px; margin: 0; }
   .side .note { display: none; }
-  .holds { flex-direction: row; overflow-x: auto; gap: 4px; margin: 0 -8px; }
-  .hrow { width: auto; min-width: 128px; flex-shrink: 0; }
+  .holds { max-height: 38vh; overflow-y: auto; margin: 0 -8px; }
   .log-in { padding: 20px 16px 12px; }
   .composer { padding: 8px 16px 14px; }
   .top { padding: 0 16px; gap: 10px; }
@@ -208,12 +218,12 @@ code { font: 12px/1.5 var(--mono); background: var(--sunk); padding: 1px 5px; bo
   <div class="cols">
     <aside class="col side" aria-label="Paper portfolio">
       <div class="head">
-        <div class="label">Paper portfolio</div>
+        <div class="label" id="acct">Paper portfolio</div>
         <div class="total num" id="total">–</div>
         <div class="sub num" id="cash"></div>
       </div>
       <div class="holds" id="holds"></div>
-      <p class="note">Demo positions at demo prices. Informational, not financial advice. Nothing here places a real order.</p>
+      <p class="note" id="sideNote">Informational, not financial advice. Nothing here places a real-money order.</p>
     </aside>
     <main class="col chat">
       <div class="log" id="log" aria-live="polite"><div class="log-in" id="logIn"></div></div>
@@ -235,7 +245,7 @@ code { font: 12px/1.5 var(--mono); background: var(--sunk); padding: 1px 5px; bo
 <script nonce="%NONCE%">
 // Everything from the server (news headlines, agent text) is escaped before it's placed. Paper trades only.
 const $ = (id) => document.getElementById(id)
-const st = { messages: [], book: null, tickers: {}, owner: true, open: null, ticket: null, last: 0, sending: false, sig: "", loaded: false }
+const st = { messages: [], book: null, bookError: "", tickers: {}, owner: true, open: null, ticket: null, last: 0, sending: false, sig: "", loaded: false }
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const href = (u) => /^https?:\/\//i.test(String(u)) ? esc(u) : "#"
 const usd = (n) => Number(n).toLocaleString("en-US", { style: "currency", currency: "USD" })
@@ -246,6 +256,8 @@ const when = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLoca
 const secs = (ms) => ms == null ? "–" : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${(ms / 60000).toFixed(1)} min`
 const pos = (t) => st.book?.positions.find((p) => p.ticker === t)
 const tickers = () => st.book ? st.book.positions.map((p) => p.ticker) : []
+const live = () => st.book?.prices === "alpaca"
+const power = () => st.book ? st.book.buyingPower ?? st.book.cash : 0
 const narrow = () => matchMedia("(max-width: 1200px)").matches
 // The agent's latest call per ticker: its newest reply or news view that has one.
 const pickOf = (t) => { for (let i = st.messages.length - 1; i >= 0; i--) { const p = st.messages[i].picks?.find((p) => p.ticker === t); if (p) return { ...p, at: st.messages[i].at, kind: st.messages[i].role } } }
@@ -260,13 +272,13 @@ async function poll() {
   try {
     const r = await fetch(`/api/chat?after=${st.last}`, { cache: "no-store" })
     if (!r.ok) throw new Error(String(r.status))
-    const d = await r.json(), sig = JSON.stringify([d.book, d.tickers, d.owner])
+    const d = await r.json(), sig = JSON.stringify([d.book, d.bookError, d.tickers, d.owner])
     // Cleared here or in another tab: the oldest message on the server is newer than ours, or there are none.
     if (st.messages.length && (d.first == null || d.first > st.messages[0].id)) resetChat()
     const fresh = d.messages.filter((m) => m.id > st.last), first = !st.loaded, changed = sig !== st.sig
     st.loaded = true
     st.messages.push(...fresh); st.last = st.messages.at(-1)?.id ?? st.last
-    Object.assign(st, { book: d.book, tickers: d.tickers, owner: d.owner, sig })
+    Object.assign(st, { book: d.book, bookError: d.bookError || "", tickers: d.tickers, owner: d.owner, sig })
     setStatus(true)
     appendMessages(fresh, first)
     // New picks change the rail's dots and the sheet's call, so both redraw then too.
@@ -355,16 +367,29 @@ log.addEventListener("scroll", () => { if (nearBottom()) $("jump").hidden = true
 
 // ---------- portfolio ----------
 function renderSide() {
-  const b = st.book; if (!b) return
+  const b = st.book
+  $("acct").textContent = !b ? "Paper portfolio" : live() ? "Alpaca paper account" : "Demo portfolio"
+  $("sideNote").textContent = live() ? "Paper money on your Alpaca paper account. Prices are real, from the IEX exchange, and can differ by a few cents from other quotes. Informational, not financial advice. No real-money orders."
+    : "Demo positions at demo prices. Informational, not financial advice. Nothing here places a real order."
+  if (!b) { $("total").textContent = "–"; $("cash").textContent = st.bookError || "Loading…"; $("holds").innerHTML = ""; return }
   const cost = b.positions.reduce((a, p) => a + p.shares * p.avgCost, 0), held = b.positions.reduce((a, p) => a + p.value, 0)
   $("total").textContent = usd(b.value)
-  $("cash").innerHTML = `${usd(b.cash)} cash · <span class="${held >= cost ? "up" : "down"}">${pct(cost ? held / cost - 1 : 0)}</span>`
-  $("holds").innerHTML = b.positions.map((p) => {
-    const pk = pickOf(p.ticker), g = p.shares ? p.price / p.avgCost - 1 : null
+  $("cash").innerHTML = `${usd(b.cash)} cash · <span class="${held >= cost ? "up" : "down"}">${pct(cost ? held / cost - 1 : 0)}</span>${live() ? `<br>Market ${b.marketOpen ? `<span class="up">open</span>` : "closed"}` : ""}`
+  const pending = (t) => (b.orders || []).filter((o) => o.ticker === t)
+  const row = (p) => {
+    const pk = pickOf(p.ticker), g = p.shares ? p.price / p.avgCost - 1 : null, n = pending(p.ticker).length
     return `<button type="button" class="hrow ${st.open === p.ticker ? "on" : ""}" data-open="${esc(p.ticker)}">
-      <span><span class="t"><span class="tk">${esc(p.ticker)}</span>${pk ? `<span class="dot v-${esc(pk.view)}" title="Agent says ${esc(pk.view)}"></span>` : ""}</span><span class="s">${p.shares ? `${p.shares} shares` : "Watching"}</span></span>
-      <span class="v num">${p.shares ? usd(p.value) : `<span class="muted">${usd(p.price)}</span>`}<span class="s ${g == null ? "" : g >= 0 ? "up" : "down"}">${g == null ? "No position" : pct(g)}</span></span></button>`
-  }).join("")
+      <span><span class="t"><span class="tk">${esc(p.ticker)}</span>${pk ? `<span class="dot v-${esc(pk.view)}" title="Agent says ${esc(pk.view)}"></span>` : ""}</span><span class="s">${p.shares ? `${p.shares} shares` : n ? `<span class="pend">${n} order${n > 1 ? "s" : ""} pending</span>` : "Not held"}</span></span>
+      <span class="v num">${p.shares ? usd(p.value) : `<span class="muted">${p.price ? usd(p.price) : "No price"}</span>`}<span class="s ${g == null ? "" : g >= 0 ? "up" : "down"}">${g == null ? "" : pct(g)}${p.shares && n ? ` · <span class="pend">${n} pending</span>` : ""}</span></span></button>`
+  }
+  const held = b.positions.filter((p) => p.shares), watch = b.positions.filter((p) => !p.shares), others = b.others || [], orders = b.orders || [], recent = (b.recent || []).slice(0, 3)
+  const when2 = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) }
+  $("holds").innerHTML = [
+    orders.length && `<div class="group"><div class="label">Open orders <span class="num">${orders.length}</span></div>${orders.map((o) => `<div class="orow"><span><b class="v-${o.side === "buy" ? "buy" : "sell"}">${esc(o.side === "buy" ? "Buy" : "Sell")}</b> ${o.qty} <span class="tk">${esc(o.ticker)}</span></span><span class="s">${esc(o.type)} · ${b.marketOpen ? esc(o.status.replaceAll("_", " ")) : "fills at the open"}</span><button type="button" class="btn" data-act="cancel-order" data-id="${esc(o.id)}">Cancel</button></div>`).join("")}</div>`,
+    `<div class="group"><div class="label">Holdings</div>${held.length || others.length ? held.map(row).join("") + others.map((p) => `<div class="srow"><span><span class="tk">${esc(p.ticker)}</span><span class="s">${p.shares} shares</span></span><span class="v num">${usd(p.value)}<span class="s ${p.price >= p.avgCost ? "up" : "down"}">${p.avgCost ? pct(p.price / p.avgCost - 1) : ""}</span></span></div>`).join("") : `<p class="note" style="margin:0">No positions yet. Buy from any stock below.</p>`}</div>`,
+    watch.length && `<div class="group"><div class="label">Watchlist</div>${watch.map(row).join("")}</div>`,
+    recent.length && `<div class="group"><div class="label">Recent orders</div>${recent.map((o) => `<div class="srow"><span>${o.status === "filled" ? (o.side === "buy" ? "Bought" : "Sold") : `Cancelled ${esc(o.side)}`} ${o.qty} <span class="tk">${esc(o.ticker)}</span><span class="s">${esc(when2(o.at))}</span></span><span class="v num">${o.price ? usd(o.price) : ""}</span></div>`).join("")}</div>`,
+  ].filter(Boolean).join("")
 }
 
 // ---------- reasoning sheet ----------
@@ -387,9 +412,10 @@ function renderPanel() {
   el.dataset.t = t
   el.innerHTML = `<div class="why">
     <div>
-      <div class="why-head"><div><h2><span class="tk">${esc(t)}</span>${pk ? call(pk.view) : ""}</h2><div class="company">${esc(x.company)}</div></div><button type="button" class="close" data-act="close" aria-label="Close">✕</button></div>
-      <div class="facts num"><div><span>Demo price</span><b>${usd(p.price)}</b></div><div><span>You hold</span><b>${p.shares || "–"}</b></div><div><span>Return</span><b class="${g == null ? "" : g >= 0 ? "up" : "down"}">${g == null ? "–" : pct(g)}</b></div></div>
+      <div class="why-head"><div><h2><span class="tk">${esc(t)}</span>${pk ? call(pk.view) : ""}</h2><div class="company">${esc(x.company)}${live() && p.asset ? ` · on Alpaca: ${esc(p.asset)}` : ""}</div></div><button type="button" class="close" data-act="close" aria-label="Close">✕</button></div>
+      <div class="facts num"><div><span>${live() ? "Last price (IEX)" : "Demo price"}</span><b>${p.price ? usd(p.price) : "–"}</b></div><div><span>You hold</span><b>${p.shares || "–"}</b></div><div><span>Return</span><b class="${g == null ? "" : g >= 0 ? "up" : "down"}">${g == null ? "–" : pct(g)}</b></div></div>
       <div class="trade-acts">${tradeBtns(t)}</div>
+      ${(st.book.orders || []).filter((o) => o.ticker === t).map((o) => `<div class="orow" style="margin-top:10px"><span><b class="v-${o.side === "buy" ? "buy" : "sell"}">${o.side === "buy" ? "Buy" : "Sell"}</b> ${o.qty} <span class="tk">${esc(o.ticker)}</span></span><span class="s">Open order · ${st.book.marketOpen ? esc(o.status.replaceAll("_", " ")) : "fills at the open"}</span><button type="button" class="btn" data-act="cancel-order" data-id="${esc(o.id)}">Cancel</button></div>`).join("")}
       <div id="ticketBox">${ticketHtml(t)}</div>
     </div>
     <section class="sec"><h3 class="label">Agent's call</h3>
@@ -409,23 +435,25 @@ function renderPanel() {
 }
 
 // ---------- paper ticket ----------
-const tradeBtns = (t) => `<button type="button" class="btn buy" data-act="ticket" data-t="${esc(t)}" data-side="buy">Buy</button><button type="button" class="btn sell" data-act="ticket" data-t="${esc(t)}" data-side="sell" ${pos(t)?.shares ? "" : `disabled title="You hold none"`}>Sell</button>`
+const tradeBtns = (t) => `<button type="button" class="btn buy" data-act="ticket" data-t="${esc(t)}" data-side="buy" ${pos(t)?.price ? "" : `disabled title="No price for ${esc(t)}"`}>Buy</button><button type="button" class="btn sell" data-act="ticket" data-t="${esc(t)}" data-side="sell" ${pos(t)?.shares ? "" : `disabled title="You hold none"`}>Sell</button>`
 function ticketMath(k) {
-  const p = pos(k.t), qty = Number(k.qty), whole = Number.isInteger(qty) && qty > 0, cost = whole ? qty * p.price : 0
-  const err = !whole ? "Enter a whole number of shares." : k.side === "buy" && cost > st.book.cash ? `That's more than your ${usd(st.book.cash)} paper cash.` : k.side === "sell" && qty > p.shares ? `You hold ${p.shares}.` : ""
+  const p0 = pos(k.t), selling = (st.book.orders || []).filter((o) => o.ticker === k.t && o.side === "sell").reduce((a, o) => a + o.qty, 0)
+  const p = { ...p0, shares: p0.shares - selling }, qty = Number(k.qty), whole = Number.isInteger(qty) && qty > 0, cost = whole ? qty * (p.price || 0) : 0
+  const err = !p.price ? `No price for ${k.t}.` : !whole ? "Enter a whole number of shares." : k.side === "buy" && cost > power() ? `That's more than your ${usd(power())} paper ${live() ? "buying power" : "cash"}.` : k.side === "sell" && qty > p.shares ? `You can sell ${p.shares}${selling ? ` (${selling} already in an open sell order)` : ""}.` : ""
   const cashAfter = st.book.cash + (k.side === "buy" ? -cost : cost), sharesAfter = p.shares + (k.side === "buy" ? qty : -qty)
-  return { p, qty, cost, err, cashAfter, sharesAfter, max: k.side === "buy" ? Math.floor(st.book.cash / p.price) : p.shares }
+  return { p, qty, cost, err, cashAfter, sharesAfter, max: k.side === "buy" ? (p.price ? Math.floor(power() / p.price) : 0) : Math.floor(p.shares) }
 }
-const mathHtml = (k, m) => `<dt>Est. ${k.side === "buy" ? "cost" : "proceeds"}</dt><dd>${usd(m.cost)}</dd><dt>Cash after</dt><dd>${m.err ? "–" : usd(m.cashAfter)}</dd><dt>${esc(k.t)} after</dt><dd>${m.err ? "–" : m.sharesAfter}</dd>`
+const mathHtml = (k, m) => `<dt>Est. ${k.side === "buy" ? "cost" : "proceeds"}${live() ? " at last price" : ""}</dt><dd>${usd(m.cost)}</dd><dt>Cash after</dt><dd>${m.err ? "–" : usd(m.cashAfter)}</dd><dt>${esc(k.t)} after</dt><dd>${m.err ? "–" : m.sharesAfter}</dd>`
 function ticketHtml(t) {
   const k = st.ticket; if (!k || k.t !== t || !st.book) return ""
   const m = ticketMath(k)
   return `<div class="ticket" role="group" aria-label="Paper trade">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="seg"><button type="button" class="buy ${k.side === "buy" ? "on" : ""}" data-act="side" data-side="buy">Buy</button><button type="button" class="sell ${k.side === "sell" ? "on" : ""}" data-act="side" data-side="sell" ${m.p.shares ? "" : "disabled"}>Sell</button></div><span class="fine">Paper trade</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="seg"><button type="button" class="buy ${k.side === "buy" ? "on" : ""}" data-act="side" data-side="buy">Buy</button><button type="button" class="sell ${k.side === "sell" ? "on" : ""}" data-act="side" data-side="sell" ${m.p.shares ? "" : "disabled"}>Sell</button></div><span class="fine">${live() ? "Alpaca paper · market order" : "Paper trade"}</span></div>
     <label class="qty"><input id="qty" type="number" inputmode="numeric" min="1" step="1" value="${esc(k.qty)}" aria-label="Shares"><span class="muted">shares · max <button type="button" class="link" data-act="max" style="padding:0 2px">${m.max}</button></span></label>
     <dl class="num" id="ticketMath">${mathHtml(k, m)}</dl>
+    ${live() && !st.book.marketOpen ? `<p class="fine">The market is closed. Alpaca fills the order when it opens, at that price.</p>` : ""}
     <div class="err" id="ticketErr">${esc(k.err || (k.touched ? m.err : ""))}</div>
-    <div class="row"><button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn primary" id="fillBtn" data-act="fill" ${m.err || k.busy ? "disabled" : ""}>${k.busy ? "Placing…" : `Confirm paper ${k.side}`}</button></div></div>`
+    <div class="row"><button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn primary" id="fillBtn" data-act="fill" ${m.err || k.busy ? "disabled" : ""}>${k.busy ? "Sending…" : live() ? `Send paper ${k.side} order` : `Confirm paper ${k.side}`}</button></div></div>`
 }
 const renderTicket = () => { const b = $("ticketBox"); if (b) b.innerHTML = ticketHtml(st.open) }
 function openTicket(t, side, qty = 1) {
@@ -441,6 +469,13 @@ async function fill() {
   k.busy = false
   if (!r.ok) { k.err = r.message || "Not placed."; return renderTicket() }
   st.ticket = null; toast(r.message); await poll(); renderPanel()
+}
+
+async function cancelOrder(el) {
+  el.disabled = true; el.textContent = "Cancelling…"
+  const r = await post("/api/orders/cancel", { id: el.dataset.id })
+  toast(r.ok ? r.message : r.message || "Couldn't cancel it.")
+  await poll()
 }
 
 // ---------- asking ----------
@@ -487,6 +522,7 @@ document.addEventListener("click", (e) => {
   if (act === "side") { Object.assign(st.ticket, { side: el.dataset.side, err: "" }); return renderTicket() }
   if (act === "max") { Object.assign(st.ticket, { qty: ticketMath(st.ticket).max || 1, touched: true }); return renderTicket() }
   if (act === "fill") return fill()
+  if (act === "cancel-order") return cancelOrder(el)
   if (act === "cancel") { st.ticket = null; return renderTicket() }
   if (act === "close") return closePanel()
   if (el.dataset.open) st.open === el.dataset.open ? closePanel() : openPanel(el.dataset.open)

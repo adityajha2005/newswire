@@ -4,7 +4,7 @@ import { readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Wakeshift } from "@wakeshift/sdk"
-import { AI_SYMBOLS, DEFAULT_THRESHOLD, FEED_SYMBOLS, TICKERS, agentKeys, alpacaFeed, alpacaToRaw, cardHtml, funnelOf, createApp, createMcp, createPipeline, defineNews, defineReview, funnelLine, owners, REVIEW_ROUTE, START_CASH, inPool, jevClient, loadSeed, newsText, normalize, openDb, storyIdOf, views } from "./app.ts"
+import { ALPACA_PAPER, alpacaPaper, AI_SYMBOLS, DEFAULT_THRESHOLD, FEED_SYMBOLS, TICKERS, agentKeys, alpacaFeed, alpacaToRaw, cardHtml, funnelOf, createApp, createMcp, createPipeline, defineNews, defineReview, funnelLine, owners, REVIEW_ROUTE, START_CASH, inPool, jevClient, loadSeed, newsText, normalize, openDb, storyIdOf, views } from "./app.ts"
 import type { Jev, Payload, Ticker } from "./app.ts"
 
 const N = TICKERS.length
@@ -591,6 +591,56 @@ Object.assign(tests, {
       const ans = m.messages.find((x: any) => x.role === "agent")
       assert.equal(ans.requestId, id); assert.deepEqual(ans.picks, [pick])
     } finally { a.stop() }
+  },
+  "alpaca paper: reads the paper account, sends market orders to the paper API only, no shorting, bad keys explained": async () => {
+    const calls: { url: string; method: string; body?: any; key?: string }[] = []
+    let filled = false, keysOk = true
+    const fake = (async (url: string, init: any) => {
+      calls.push({ url, method: init.method, body: init.body && JSON.parse(init.body), key: init.headers["APCA-API-KEY-ID"] })
+      const ok = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
+      if (!keysOk) return ok({ message: "forbidden" }, 403)
+      const path = new URL(url).pathname
+      if (path === "/v2/account") return ok({ cash: "2000", equity: "3000", buying_power: "4000" })
+      const aapl = { symbol: "AAPL", qty: "3", avg_entry_price: "200", current_price: "210", market_value: "630" }
+      if (path === "/v2/positions") return ok(filled ? [{ symbol: "NVDA", qty: "12", avg_entry_price: "150", current_price: "180", market_value: "2160" }, aapl] : [{ symbol: "NVDA", qty: "10", avg_entry_price: "150", current_price: "180", market_value: "1800" }, aapl])
+      if (path.startsWith("/v2/assets/")) { const t = path.split("/").pop(); return ok({ symbol: t, name: `${t} Corp`, tradable: t !== "TSLA" }) }
+      if (path === "/v2/orders" && init.method === "GET") return ok([
+        { id: "o9", symbol: "NVDA", side: "sell", qty: "11", type: "market", status: "accepted", submitted_at: "2026-11-07T10:00:00Z" },
+        { id: "o8", symbol: "AMD", side: "buy", qty: "1", type: "market", status: "filled", filled_at: "2026-11-06T15:00:00Z", filled_avg_price: "160" },
+      ])
+      if (path === "/v2/orders/o9" && init.method === "DELETE") return new Response(null, { status: 204 })
+      if (path === "/v2/clock") return ok({ is_open: true })
+      if (path === "/v2/stocks/snapshots") return ok({ AMD: { latestTrade: { p: 160.25 } } })
+      if (path === "/v2/orders") return ok({ id: "o1", status: "accepted" })
+      if (path === "/v2/orders/o1") { filled = true; return ok({ id: "o1", status: "filled", filled_avg_price: "180.1" }) }
+      return ok({ message: "not found" }, 404)
+    }) as typeof fetch
+    const b = alpacaPaper({ key: "k", secret: "s", fetch: fake, waitMs: 1, cacheMs: 0 })
+    const book = await b.book()
+    assert.equal(book.prices, "alpaca"); assert.equal(book.cash, 2000); assert.equal(book.buyingPower, 2000, "capped at cash: no margin")
+    assert.deepEqual(book.positions.find((p) => p.ticker === "NVDA"), { ticker: "NVDA", company: book.positions[0].company, asset: "NVDA Corp", tradable: true, shares: 10, avgCost: 150, price: 180, value: 1800 })
+    assert.equal(book.positions.find((p) => p.ticker === "AMD")!.price, 160.25, "price from the snapshot when not held")
+    assert.equal(book.positions.find((p) => p.ticker === "SPCX")!.price, null, "no price: can't be traded")
+    assert.equal(book.positions.find((p) => p.ticker === "NVDA")!.asset, "NVDA Corp", "Alpaca's own name, so you see what you'd buy")
+    assert.deepEqual(book.others, [{ ticker: "AAPL", shares: 3, avgCost: 200, price: 210, value: 630 }], "holdings outside the 7 show too")
+    assert.deepEqual(book.orders!.map((o) => [o.id, o.status]), [["o9", "accepted"]]); assert.deepEqual(book.recent!.map((o) => [o.id, o.price]), [["o8", 160]])
+    await assert.rejects(b.trade({ ticker: "NVDA", side: "sell", qty: 1 }), /10 NVDA, and 11 are already in an open sell order/)
+    const msg = await b.trade({ ticker: "NVDA", side: "buy", qty: 2 })
+    assert.match(msg, /^Alpaca paper bought 2 NVDA at \$180\.10 \(\$360\.20\)\. Paper money/)
+    const order = calls.find((c) => c.method === "POST")!
+    assert.equal(order.url, `${ALPACA_PAPER}/v2/orders`)
+    assert.deepEqual({ ...order.body, client_order_id: undefined }, { symbol: "NVDA", qty: "2", side: "buy", type: "market", time_in_force: "day", client_order_id: undefined })
+    assert.ok(calls.every((c) => /^https:\/\/(paper-api|data)\.alpaca\.markets\//.test(c.url) && c.key === "k"), "paper and market-data hosts only, never the live API")
+    const posts = () => calls.filter((c) => c.method === "POST").length
+    for (const [bad, why] of [[{ ticker: "NVDA", side: "sell", qty: 13 }, /You hold 12 NVDA/], [{ ticker: "TSLA", side: "buy", qty: 1 }, /tradable/], [{ ticker: "AMD", side: "buy", qty: 13 }, /buying power/], [{ ticker: "SPCX", side: "buy", qty: 1 }, /no price/], [{ ticker: "NVDA", side: "buy", qty: 1.5 }, /int/]] as const) {
+      const n = posts()
+      await assert.rejects(b.trade(bad), why); assert.equal(posts(), n, "refused before any order")
+    }
+    assert.equal(await b.cancel!("o9"), "Cancelled the paper order to sell 11 NVDA.")
+    assert.ok(calls.some((c) => c.method === "DELETE" && c.url === `${ALPACA_PAPER}/v2/orders/o9`))
+    await assert.rejects(b.cancel!("nope"), /isn't open/)
+    keysOk = false
+    await assert.rejects(b.book(), /paper account/)
   },
   "clear chat: only from our page; wipes messages, keeps paper trades; a late answer to a cleared ask is refused": async () => {
     const a = await newswire({ withChat: true })

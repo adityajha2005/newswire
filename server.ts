@@ -3,12 +3,13 @@
 //   node --env-file=.env newswire/server.ts --feed                           ...and run Alpaca's real-time news through the pipeline
 //   node --env-file=.env newswire/server.ts --replay newswire/replay.json    replay once: dedupe -> Jev -> emit, then exit
 //     ... --every 10                                                         one headline every 10 s, like a live stream
+// Paper trades go to your Alpaca paper account when ALPACA_KEY_ID/ALPACA_SECRET_KEY are set (NEWSWIRE_BROKER=demo keeps the local demo book).
 // All three share one SQLite file, so the page and post_view see what the feed and the replay sent.
 import { createHmac } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { parseArgs } from "node:util"
 import { Wakeshift } from "@wakeshift/sdk"
-import { DEFAULT_THRESHOLD, FEED_SYMBOLS, HOUR, REVIEW_ROUTE, TICKERS, agentKeys, alpacaFeed, createApp, createMcp, createPipeline, defineNews, defineReview, funnelLine, jevClient, openDb, owners, routeOf, storyIdOf } from "./app.ts"
+import { DEFAULT_THRESHOLD, FEED_SYMBOLS, HOUR, REVIEW_ROUTE, TICKERS, agentKeys, alpacaFeed, alpacaPaper, loadSeed, paper, createApp, createMcp, createPipeline, defineNews, defineReview, funnelLine, jevClient, openDb, owners, routeOf, storyIdOf } from "./app.ts"
 
 const { values } = parseArgs({ options: { replay: { type: "string" }, every: { type: "string" }, feed: { type: "boolean" }, db: { type: "string", default: new URL("./newswire.db", import.meta.url).pathname } } })
 const env = process.env
@@ -62,8 +63,14 @@ if (!REVIEWER_TOKEN) console.warn('REVIEWER_TOKEN is not set, so nobody can appr
 const keys = agentKeys(NEWSWIRE_AGENT_SECRET ? Buffer.from(NEWSWIRE_AGENT_SECRET) : createHmac("sha256", WAKESHIFT_KEY!).update("newswire agent keys v1").digest())
 // The chat emits before any agent may have connected, so the manifest goes out first (else 404 unknown_event).
 await wake.publishManifest({})
-const { server } = createApp({ keys, mcp: createMcp({ wake, news, review, db, keys }), publicUrl: PUBLIC_URL, trustProxy: TRUST_PROXY === "1", db, reviewerToken: REVIEWER_TOKEN, startedAt: Date.now(),
-  chat: { emit: (requestId, ask) => review.emit(REVIEW_ROUTE, { requestId, ask }, { id: `chat:${requestId}` }) } })
+// Paper only either way: the Alpaca broker can only reach Alpaca's paper API.
+const broker = ALPACA_KEY_ID && ALPACA_SECRET_KEY && env.NEWSWIRE_BROKER !== "demo" ? alpacaPaper({ key: ALPACA_KEY_ID, secret: ALPACA_SECRET_KEY }) : paper(db, loadSeed())
+const { server } = createApp({ keys, mcp: createMcp({ wake, news, review, db, keys, broker }), publicUrl: PUBLIC_URL, trustProxy: TRUST_PROXY === "1", db, reviewerToken: REVIEWER_TOKEN, startedAt: Date.now(),
+  chat: { broker, emit: (requestId, ask) => review.emit(REVIEW_ROUTE, { requestId, ask }, { id: `chat:${requestId}` }) } })
+try {
+  const b = await broker.book()
+  console.log(b.prices === "alpaca" ? `Paper trades: your Alpaca paper account (value ${b.value.toFixed(2)}, market ${b.marketOpen ? "open" : "closed"}).` : "Paper trades: the local demo book (no Alpaca keys, or NEWSWIRE_BROKER=demo).")
+} catch (e: any) { console.warn(`Paper trades: Alpaca isn't answering yet: ${e?.message ?? e}`) }
 server.listen(Number(PORT), () => console.log(`newswire on :${PORT}${PUBLIC_URL ? `, public at ${PUBLIC_URL}` : ""}. Chat: http://localhost:${PORT}/chat, review page: http://localhost:${PORT}/ (this machine only). Pool: ${TICKERS.join(", ")}. Threshold ${threshold}, at most ${maxEmitsPerHour} emits an hour`))
 if (!db.prepare("SELECT 1 FROM owners LIMIT 1").get()) console.log(`No portfolio owner yet. Get your agent's key with: curl -s -X POST http://localhost:${PORT}/api/owner`)
 
