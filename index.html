@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newswire Review</title>
+<style>
+/* Layout: one reading column. Funnel strip on top, then a single divided list of views. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --sunk: #eef0f3; --ink: #15171a; --ink-2: #474b53; --muted: #7b808a; --line: #e3e6eb;
+  --accent: #2c5bd6;
+  --buy: #18794e; --hold: #8c6a0a; --sell: #b4382b;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1114; --surface: #16191d; --sunk: #1d2126; --ink: #e9ebee; --ink-2: #b4b9c1; --muted: #858b95; --line: #262a30;
+  --accent: #7c9dff; --buy: #4fc48a; --hold: #dcb44a; --sell: #f07f6f; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0f1114; --surface: #16191d; --sunk: #1d2126; --ink: #e9ebee; --ink-2: #b4b9c1; --muted: #858b95; --line: #262a30;
+  --accent: #7c9dff; --buy: #4fc48a; --hold: #dcb44a; --sell: #f07f6f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .4; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+.tk { font-family: var(--mono); font-weight: 600; letter-spacing: .01em; }
+.v-buy { color: var(--buy); } .v-hold { color: var(--hold); } .v-sell { color: var(--sell); }
+
+/* header: same as the chat */
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 52px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.brand { font-weight: 650; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+.brand i { width: 20px; height: 20px; border-radius: 5px; background: var(--ink); color: var(--surface); display: inline-grid; place-items: center; font: 600 11px var(--mono); font-style: normal; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.status.ok::before { background: var(--buy); } .status.off::before { background: var(--sell); }
+.grow { flex: 1; }
+.nav { display: flex; gap: 4px; }
+.link { font-size: 13px; padding: 6px 10px; border-radius: 7px; color: var(--muted); text-decoration: none; border: 0; background: none; }
+.link:hover { color: var(--ink); background: var(--sunk); }
+.link.on { color: var(--ink); font-weight: 600; }
+
+main { max-width: 760px; margin: 0 auto; padding: 36px 24px 72px; display: flex; flex-direction: column; gap: 28px; }
+.intro { display: flex; flex-direction: column; gap: 6px; }
+h1 { font-size: 22px; letter-spacing: -.02em; margin: 0; }
+.lede { color: var(--ink-2); margin: 0; max-width: 60ch; }
+.lede b { color: var(--ink); font-weight: 600; }
+
+/* funnel strip */
+.label { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.fhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.seg { display: inline-flex; background: var(--sunk); border-radius: 8px; padding: 2px; }
+.seg button { height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.seg button small { margin-left: 4px; color: var(--muted); font-size: 11px; }
+#funnel .funnel { display: none; }
+#funnel[data-show="today"] [data-range="today"], #funnel[data-show="run"] [data-range="run"] { display: block; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.steps li { padding: 12px 0 0; min-width: 0; }
+.steps em { display: block; font-style: normal; font-size: 22px; font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+.steps span { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.times { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); }
+.times b { color: var(--ink); font-weight: 600; }
+.warn { color: var(--sell); }
+
+/* list */
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.bar .label .n { color: var(--ink-2); margin-left: 6px; letter-spacing: 0; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+select { height: 30px; padding: 0 28px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 12.5px; }
+.token { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.token input { width: 150px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 12.5px; }
+.token.set input { border-color: var(--buy); }
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.list:empty { display: none; }
+.empty { color: var(--muted); text-align: center; padding: 40px 16px; margin: 0; border: 1px dashed var(--line); border-radius: 12px; }
+.card { padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; }
+.card + .card { border-top: 1px solid var(--line); }
+.card[hidden] { display: none; }
+.card header { display: flex; align-items: baseline; gap: 10px; }
+.call { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.conf { font-size: 12.5px; color: var(--muted); }
+.state { margin-left: auto; font-size: 12px; color: var(--muted); }
+.state.approve { color: var(--buy); font-weight: 600; } .state.reject { color: var(--sell); font-weight: 600; }
+.card h3 { font-size: 15px; line-height: 1.4; margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; text-wrap: pretty; }
+.card h3 a { color: var(--ink); text-decoration: none; }
+.card h3 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.meta { color: var(--muted); font-size: 12.5px; margin: 0; }
+.reasons { margin: 4px 0 0; color: var(--ink-2); overflow-wrap: anywhere; max-width: 68ch; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.reasons.full { display: block; }
+.card footer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.card footer small { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+.dec { height: 28px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line); background: none; font-size: 12.5px; font-weight: 550; color: var(--ink-2); }
+.dec:hover:not(:disabled) { border-color: var(--muted); color: var(--ink); }
+.dec.approve[aria-pressed="true"] { background: var(--buy); border-color: var(--buy); color: var(--surface); }
+.dec.reject[aria-pressed="true"] { background: var(--sell); border-color: var(--sell); color: var(--surface); }
+
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 12px); background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 9px; font-size: 13px; opacity: 0; pointer-events: none; transition: .18s; max-width: calc(100vw - 32px); }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 720px) {
+  .top { padding: 0 16px; gap: 10px; }
+  main { padding: 24px 16px 56px; gap: 22px; }
+  .steps { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 4px; }
+  .card { padding: 16px; }
+  .card footer small { margin-left: 0; width: 100%; }
+  .token .tl { display: none; } .token input { width: 130px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><i aria-hidden="true">N</i>Newswire</div>
+  <span class="status" id="status">Connecting</span>
+  <span class="grow"></span>
+  <label class="token" id="tokenBox"><span class="tl">Reviewer token</span><input id="token" type="password" autocomplete="off" placeholder="needed to approve"></label>
+  <nav class="nav"><a class="link" href="/chat">Chat</a><a class="link on" href="/" aria-current="page">Review</a></nav>
+</header>
+<main>
+  <section class="intro">
+    <h1>Review queue</h1>
+    <p class="lede">Buy, hold and sell views your agents posted on news that passed Jev. <b>Informational, not financial advice.</b> Approving only records your decision. Nothing here places a trade.</p>
+  </section>
+  <section>
+    <div class="fhead"><span class="label">Pipeline</span>
+      <div class="seg" role="group" aria-label="Time range"><button type="button" data-range="today" aria-pressed="true">Today (UTC)</button><button type="button" data-range="run" aria-pressed="false">This run</button></div></div>
+    <div id="funnel" data-show="today" aria-live="polite"></div>
+  </section>
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div class="bar">
+      <span class="label">Views<span class="n num" id="shown"></span></span>
+      <div class="filters">
+        <div class="seg" id="states" role="group" aria-label="Filter by decision"></div>
+        <label class="sr" for="tickerSel" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Ticker</label>
+        <select id="tickerSel"><option value="all">All tickers</option></select>
+      </div>
+    </div>
+    <div class="list" id="cards"></div>
+    <p class="empty" id="empty">No views yet. They appear here as agents post them.</p>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+<script nonce="%NONCE%">
+// The server escapes every card and funnel before sending; the page only places them.
+const $ = (id) => document.getElementById(id)
+const token = $("token")
+const f = { state: "all", ticker: "all" }
+try { token.value = sessionStorage.getItem("nw-token") || "" } catch {}
+const tokenMark = () => $("tokenBox").classList.toggle("set", !!token.value)
+token.addEventListener("input", () => { try { sessionStorage.setItem("nw-token", token.value) } catch {}; tokenMark() })
+tokenMark()
+let toastTimer
+const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2800) }
+const place = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild }
+const cards = () => [...$("cards").children]
+
+// Filters: counts come from the cards on the page; hiding is just the hidden attribute.
+const STATES = [["all", "All"], ["pending", "Pending"], ["approve", "Approved"], ["reject", "Rejected"]]
+function renderFilters() {
+  const all = cards(), inTicker = all.filter((c) => f.ticker === "all" || c.dataset.ticker === f.ticker)
+  const tks = [...new Set(all.map((c) => c.dataset.ticker))].sort()
+  if (f.ticker !== "all" && !tks.includes(f.ticker)) f.ticker = "all"
+  $("states").innerHTML = STATES.map(([k, l]) => `<button type="button" data-state="${k}" aria-pressed="${f.state === k}">${l}<small class="num">${k === "all" ? inTicker.length : inTicker.filter((c) => c.dataset.state === k).length}</small></button>`).join("")
+  const sel = $("tickerSel"), opts = ["all", ...tks].join()
+  if (sel.dataset.opts !== opts) { sel.dataset.opts = opts; sel.innerHTML = ["all", ...tks].map((t) => `<option value="${t}">${t === "all" ? "All tickers" : t}</option>`).join("") }
+  sel.value = f.ticker
+  let shown = 0
+  for (const c of all) { const on = (f.state === "all" || c.dataset.state === f.state) && (f.ticker === "all" || c.dataset.ticker === f.ticker); c.hidden = !on; shown += on }
+  $("shown").textContent = all.length ? (shown === all.length ? `${all.length}` : `${shown} of ${all.length}`) : ""
+  $("cards").style.display = shown ? "" : "none"
+  $("empty").hidden = shown > 0
+  $("empty").textContent = all.length ? "No views match these filters." : "No views yet. They appear here as agents post them."
+}
+let queued
+const refilter = () => { if (!queued) queued = requestAnimationFrame(() => { queued = 0; renderFilters() }) }
+
+const es = new EventSource("/api/stream")
+es.onopen = () => { $("status").className = "status ok"; $("status").textContent = "Live" }
+es.onerror = () => { $("status").className = "status off"; $("status").textContent = "Reconnecting" }
+es.onmessage = (e) => {
+  const m = JSON.parse(e.data)
+  if (m.type === "funnel") { $("funnel").innerHTML = m.html; return }
+  if (m.type !== "card") return
+  const el = place(m.html), old = document.querySelector(`.card[data-id="${Number(m.id)}"]`)
+  old ? old.replaceWith(el) : $("cards").prepend(el)
+  refilter()
+}
+$("tickerSel").addEventListener("change", (e) => { f.ticker = e.target.value; renderFilters() })
+document.addEventListener("click", async (e) => {
+  const rg = e.target.closest(".fhead [data-range]")
+  if (rg) { $("funnel").dataset.show = rg.dataset.range; for (const b of rg.parentElement.children) b.setAttribute("aria-pressed", b === rg); return }
+  const sb = e.target.closest("#states [data-state]")
+  if (sb) { f.state = sb.dataset.state; return renderFilters() }
+  const rs = e.target.closest(".reasons")
+  if (rs) return rs.classList.toggle("full")
+  const b = e.target.closest("button[data-decision]")
+  if (!b) return
+  if (!token.value) { token.focus(); return toast("Enter the reviewer token first.") }
+  const card = b.closest(".card"), btns = card.querySelectorAll("button[data-decision]")
+  btns.forEach((x) => x.disabled = true)
+  try {
+    const r = await fetch(`/api/views/${Number(card.dataset.id)}/decision`, {
+      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token.value}` },
+      body: JSON.stringify({ decision: b.dataset.decision }),
+    })
+    // The stream sends the updated card back; this only reports.
+    toast(r.ok ? (b.dataset.decision === "approve" ? "Approved. Nothing was traded." : "Rejected.") : r.status === 401 ? "That reviewer token isn't right." : `Not saved (${r.status}).`)
+  } catch { toast("Not saved: the server is offline.") }
+  btns.forEach((x) => x.disabled = false)
+})
+renderFilters()
+</script>
+</body>
+</html>

@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newswire Chat</title>
+<style>
+/* Layout: portfolio rail | one calm conversation column; the reasoning sheet docks on the right only while a stock is open. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --sunk: #eef0f3; --ink: #15171a; --ink-2: #474b53; --muted: #7b808a; --line: #e3e6eb;
+  --accent: #2c5bd6; --accent-soft: #e9effc;
+  --buy: #18794e; --hold: #8c6a0a; --sell: #b4382b;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1114; --surface: #16191d; --sunk: #1d2126; --ink: #e9ebee; --ink-2: #b4b9c1; --muted: #858b95; --line: #262a30;
+  --accent: #7c9dff; --accent-soft: #1c2540;
+  --buy: #4fc48a; --hold: #dcb44a; --sell: #f07f6f; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0f1114; --surface: #16191d; --sunk: #1d2126; --ink: #e9ebee; --ink-2: #b4b9c1; --muted: #858b95; --line: #262a30;
+  --accent: #7c9dff; --accent-soft: #1c2540;
+  --buy: #4fc48a; --hold: #dcb44a; --sell: #f07f6f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .4; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
+.num { font-variant-numeric: tabular-nums; }
+.tk { font-family: var(--mono); font-weight: 600; letter-spacing: .01em; }
+.muted { color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.up { color: var(--buy); } .down { color: var(--sell); }
+.v-buy { color: var(--buy); } .v-hold { color: var(--hold); } .v-sell { color: var(--sell); }
+
+/* header */
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.top { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 52px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.brand { font-weight: 650; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+.brand i { width: 20px; height: 20px; border-radius: 5px; background: var(--ink); color: var(--surface); display: inline-grid; place-items: center; font: 600 11px var(--mono); font-style: normal; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.status.ok::before { background: var(--buy); } .status.warn::before { background: var(--hold); } .status.off::before { background: var(--sell); }
+.grow { flex: 1; }
+.nav { display: flex; gap: 4px; }
+.link { font-size: 13px; padding: 6px 10px; border-radius: 7px; color: var(--muted); text-decoration: none; border: 0; background: none; }
+.link:hover { color: var(--ink); background: var(--sunk); }
+.link.on { color: var(--ink); font-weight: 600; }
+.link.danger { color: var(--sell); background: var(--sunk); }
+
+.cols { min-height: 0; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+.app.open .cols { grid-template-columns: 248px minmax(0, 1fr) 400px; }
+.col { min-height: 0; overflow-y: auto; }
+
+/* portfolio rail */
+.side { border-right: 1px solid var(--line); padding: 22px 12px 16px; display: flex; flex-direction: column; gap: 18px; }
+.side .head { padding: 0 8px; }
+.label { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.total { font-size: 24px; font-weight: 650; letter-spacing: -.02em; line-height: 1.2; margin-top: 4px; }
+.sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.holds { display: flex; flex-direction: column; }
+.hrow { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px; border: 0; border-radius: 8px; background: none; }
+.hrow:hover { background: var(--sunk); }
+.hrow.on { background: var(--accent-soft); }
+.hrow .t { display: flex; align-items: center; gap: 7px; }
+.hrow .s { display: block; font-size: 12px; color: var(--muted); }
+.hrow .v { text-align: right; font-size: 13px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.note { font-size: 12px; line-height: 1.5; color: var(--muted); padding: 0 8px; margin: auto 0 0; }
+
+/* conversation */
+.chat { display: grid; grid-template-rows: 1fr auto; min-height: 0; position: relative; background: var(--bg); }
+.log { overflow-y: auto; }
+.log-in { max-width: 700px; margin: 0 auto; padding: 32px 28px 16px; display: flex; flex-direction: column; gap: 28px; }
+.m { display: flex; flex-direction: column; gap: 6px; animation: in .16s ease-out; min-width: 0; }
+@keyframes in { from { opacity: 0; transform: translateY(3px); } }
+.m .who { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.m .who b { color: var(--ink); font-weight: 600; }
+.m.user { align-self: flex-end; align-items: flex-end; max-width: 80%; }
+.m.user .body { background: var(--surface); border: 1px solid var(--line); padding: 8px 14px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m.agent .text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 64ch; }
+.m.agent.news .who b { color: var(--accent); }
+.m.event { align-self: center; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; text-align: center; }
+.m.event.trade { color: var(--buy); }
+.m.event.warn { color: var(--hold); }
+.dots { display: inline-flex; gap: 3px; } .dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: dot 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+/* the agent's calls: one quiet list, each row opens the reasoning */
+.picks { margin-top: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.pick { display: grid; grid-template-columns: 60px 48px minmax(40px, 120px) 1fr 12px; align-items: center; gap: 12px; width: 100%; padding: 9px 14px; border: 0; background: none; text-align: left; font-size: 13px; }
+.pick + .pick { border-top: 1px solid var(--line); }
+.pick:hover { background: var(--sunk); }
+.pick.on { background: var(--accent-soft); }
+.call { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.bar { height: 4px; border-radius: 2px; background: var(--sunk); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--ink-2); opacity: .5; }
+.pick .n { color: var(--muted); font-size: 12px; }
+.pick .chev { color: var(--muted); }
+
+.welcome { padding: 56px 0 8px; display: flex; flex-direction: column; gap: 18px; }
+.welcome h2 { font-size: 22px; letter-spacing: -.02em; line-height: 1.25; margin: 0; text-wrap: balance; }
+.welcome p { margin: 0; color: var(--ink-2); max-width: 54ch; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; color: var(--ink-2); }
+.chip:hover:not(:disabled) { color: var(--ink); border-color: var(--muted); }
+.connect { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 14px 16px; }
+.connect b { display: block; margin-bottom: 6px; }
+.connect ol { margin: 0; padding-left: 20px; color: var(--ink-2); } .connect li + li { margin-top: 4px; }
+code { font: 12px/1.5 var(--mono); background: var(--sunk); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.jump { position: absolute; left: 50%; transform: translateX(-50%); bottom: 84px; z-index: 2; height: 30px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); font-size: 12.5px; }
+
+/* composer */
+.composer { padding: 8px 28px 18px; }
+.box { max-width: 644px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 6px 6px 14px; }
+.box:focus-within { border-color: var(--muted); }
+.box textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; padding: 6px 0; max-height: 140px; min-height: 24px; }
+.count { font-size: 11.5px; color: var(--muted); align-self: center; }
+.btn { height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 550; }
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn.primary { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.btn.buy { color: var(--buy); } .btn.sell { color: var(--sell); }
+
+/* reasoning sheet */
+.panel { border-left: 1px solid var(--line); background: var(--surface); display: none; }
+.app.open .panel { display: block; }
+.why { padding: 22px 22px 40px; display: flex; flex-direction: column; gap: 28px; }
+.why-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.why h2 { margin: 0; font-size: 20px; display: flex; align-items: baseline; gap: 10px; }
+.why .company { color: var(--muted); font-size: 13px; }
+.close { width: 30px; height: 30px; border-radius: 7px; border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; }
+.close:hover { background: var(--sunk); color: var(--ink); }
+.facts { display: flex; gap: 24px; margin: 14px 0 16px; }
+.facts span { display: block; font-size: 12px; color: var(--muted); } .facts b { font-weight: 600; font-size: 15px; }
+.trade-acts { display: flex; gap: 8px; } .trade-acts .btn { flex: 1; }
+.ticket { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.seg { display: inline-flex; background: var(--sunk); border-radius: 8px; padding: 2px; }
+.seg button { height: 26px; padding: 0 14px; border: 0; border-radius: 6px; background: none; font-size: 13px; font-weight: 600; color: var(--muted); }
+.seg button.on { background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.seg button.on.buy { color: var(--buy); } .seg button.on.sell { color: var(--sell); }
+.qty { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.qty input { width: 90px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.qty input:focus { border-color: var(--muted); outline: 0; }
+.ticket dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; } .ticket dt { color: var(--muted); } .ticket dd { margin: 0; text-align: right; }
+.ticket .err { color: var(--sell); font-size: 12.5px; } .ticket .err:empty { display: none; }
+.ticket .row { display: flex; gap: 8px; } .ticket .row .btn { flex: 1; }
+.sec { display: flex; flex-direction: column; gap: 10px; }
+.sec h3 { margin: 0; }
+.sec .reason { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.sec .by { font-size: 12.5px; color: var(--muted); }
+.story { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.story:first-child { border-top: 0; padding-top: 0; }
+.story a { color: var(--ink); text-decoration: none; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; } .story a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.story .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.story .meta b { color: var(--ink-2); font-weight: 600; }
+.story .c { color: var(--accent); font-weight: 600; }
+.why ul { margin: 0; padding-left: 18px; color: var(--ink-2); } .why li + li { margin-top: 4px; }
+.vw { padding: 10px 0; border-top: 1px solid var(--line); }
+.vw:first-child { border-top: 0; padding-top: 0; }
+.vw .meta { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.vw p { margin: 4px 0 0; color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.none { color: var(--muted); margin: 0; }
+.fine { font-size: 12px; color: var(--muted); margin: 0; }
+.scrim { display: none; }
+
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: .18s; z-index: 30; background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 9px; font-size: 13px; max-width: calc(100% - 32px); }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Narrower: the sheet floats over the chat instead of docking. */
+@media (max-width: 1200px) {
+  .app.open .cols { grid-template-columns: 248px minmax(0, 1fr); }
+  .panel, .app.open .panel { display: block; position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); z-index: 20; transform: translateX(100%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: -8px 0 30px rgb(0 0 0 / .18); }
+  .app.open .panel { transform: none; visibility: visible; }
+  .scrim.open { display: block; position: fixed; inset: 0; background: rgb(0 0 0 / .3); z-index: 19; }
+}
+@media (max-width: 860px) {
+  .cols, .app.open .cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px 10px; gap: 8px; overflow: visible; }
+  .side .head { padding: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .total { font-size: 18px; margin: 0; }
+  .side .note { display: none; }
+  .holds { flex-direction: row; overflow-x: auto; gap: 4px; margin: 0 -8px; }
+  .hrow { width: auto; min-width: 128px; flex-shrink: 0; }
+  .log-in { padding: 20px 16px 12px; }
+  .composer { padding: 8px 16px 14px; }
+  .top { padding: 0 16px; gap: 10px; }
+  .pick { grid-template-columns: 56px 44px 1fr 12px; } .pick .n { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><i aria-hidden="true">N</i>Newswire</div>
+    <span class="status" id="status">Connecting</span>
+    <span class="grow"></span>
+    <button class="link" id="clear" type="button" hidden>Clear chat</button>
+    <nav class="nav"><a class="link on" href="/chat" aria-current="page">Chat</a><a class="link" href="/">Review</a></nav>
+  </header>
+  <div class="cols">
+    <aside class="col side" aria-label="Paper portfolio">
+      <div class="head">
+        <div class="label">Paper portfolio</div>
+        <div class="total num" id="total">–</div>
+        <div class="sub num" id="cash"></div>
+      </div>
+      <div class="holds" id="holds"></div>
+      <p class="note">Demo positions at demo prices. Informational, not financial advice. Nothing here places a real order.</p>
+    </aside>
+    <main class="col chat">
+      <div class="log" id="log" aria-live="polite"><div class="log-in" id="logIn"></div></div>
+      <button class="jump" id="jump" type="button" hidden>New messages ↓</button>
+      <form class="composer" id="form">
+        <div class="box">
+          <label class="sr" for="q">Message your agent</label>
+          <textarea id="q" rows="1" maxlength="500" placeholder="Ask your agent, or say “buy 5 NVDA”"></textarea>
+          <span class="count num" id="count"></span>
+          <button class="btn primary" id="send" type="submit" disabled>Send</button>
+        </div>
+      </form>
+    </main>
+    <aside class="col panel" id="panel" aria-label="Reasoning"></aside>
+  </div>
+</div>
+<div class="scrim" id="scrim"></div>
+<div id="toast" role="status"></div>
+<script nonce="%NONCE%">
+// Everything from the server (news headlines, agent text) is escaped before it's placed. Paper trades only.
+const $ = (id) => document.getElementById(id)
+const st = { messages: [], book: null, tickers: {}, owner: true, open: null, ticket: null, last: 0, sending: false, sig: "", loaded: false }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+const href = (u) => /^https?:\/\//i.test(String(u)) ? esc(u) : "#"
+const usd = (n) => Number(n).toLocaleString("en-US", { style: "currency", currency: "USD" })
+const pct = (n) => `${n >= 0 ? "+" : "−"}${Math.abs(n * 100).toFixed(1)}%`
+const call = (v) => `<span class="call v-${esc(v)}">${esc(v)}</span>`
+const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+const when = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) }
+const secs = (ms) => ms == null ? "–" : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${(ms / 60000).toFixed(1)} min`
+const pos = (t) => st.book?.positions.find((p) => p.ticker === t)
+const tickers = () => st.book ? st.book.positions.map((p) => p.ticker) : []
+const narrow = () => matchMedia("(max-width: 1200px)").matches
+// The agent's latest call per ticker: its newest reply or news view that has one.
+const pickOf = (t) => { for (let i = st.messages.length - 1; i >= 0; i--) { const p = st.messages[i].picks?.find((p) => p.ticker === t); if (p) return { ...p, at: st.messages[i].at, kind: st.messages[i].role } } }
+let toastTimer
+const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3200) }
+
+// ---------- data ----------
+let polling = false
+async function poll() {
+  if (polling) return
+  polling = true
+  try {
+    const r = await fetch(`/api/chat?after=${st.last}`, { cache: "no-store" })
+    if (!r.ok) throw new Error(String(r.status))
+    const d = await r.json(), sig = JSON.stringify([d.book, d.tickers, d.owner])
+    // Cleared here or in another tab: the oldest message on the server is newer than ours, or there are none.
+    if (st.messages.length && (d.first == null || d.first > st.messages[0].id)) resetChat()
+    const fresh = d.messages.filter((m) => m.id > st.last), first = !st.loaded, changed = sig !== st.sig
+    st.loaded = true
+    st.messages.push(...fresh); st.last = st.messages.at(-1)?.id ?? st.last
+    Object.assign(st, { book: d.book, tickers: d.tickers, owner: d.owner, sig })
+    setStatus(true)
+    appendMessages(fresh, first)
+    // New picks change the rail's dots and the sheet's call, so both redraw then too.
+    if (first || changed || fresh.some((m) => m.picks)) { renderSide(); renderPanel() }
+  } catch { setStatus(false) } finally { polling = false }
+}
+function setStatus(ok) {
+  const s = $("status")
+  s.className = `status ${!ok ? "off" : st.owner ? "ok" : "warn"}`
+  s.textContent = !ok ? "Server offline, retrying" : st.owner ? "Agent linked" : "No agent linked"
+}
+async function post(path, body) {
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+    return { ok: r.ok, status: r.status, ...(await r.json().catch(() => ({}))) }
+  } catch { return { ok: false, status: 0, message: "Can't reach the server." } }
+}
+
+// ---------- chat log: messages are appended, never redrawn ----------
+const log = $("log"), logIn = $("logIn")
+const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80
+const toBottom = (smooth) => { log.scrollTo({ top: log.scrollHeight, behavior: smooth ? "smooth" : "auto" }); $("jump").hidden = true }
+function pickRow(p) {
+  const n = p.storyIds?.length ?? 0, c = Math.round(p.confidence * 100)
+  return `<button type="button" class="pick ${st.open === p.ticker ? "on" : ""}" data-open="${esc(p.ticker)}" data-pick="${esc(p.ticker)}" aria-label="${esc(p.ticker)}: ${esc(p.view)}, ${c}% confidence. Show why">
+    <span class="tk">${esc(p.ticker)}</span>${call(p.view)}<span class="bar"><i style="width:${c}%"></i></span><span class="n num">${c}% · ${n} ${n === 1 ? "story" : "stories"}</span><span class="chev" aria-hidden="true">›</span></button>`
+}
+function messageHtml(m) {
+  if (m.role === "user") return `<div class="m user"><div class="body">${esc(m.text)}</div></div>`
+  if (m.role === "trade") return `<div class="m event trade">✓ ${esc(m.text)}</div>`
+  if (m.role === "system") {
+    return /^Woke/.test(m.text) ? `<div class="m event" data-wait="${Number(m.requestId)}"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Your agent is working on it</span></div>`
+      : `<div class="m event warn">${esc(m.text)}</div>`
+  }
+  const news = m.role === "news", picks = m.picks || []
+  return `<div class="m agent ${news ? "news" : ""}"><div class="who"><b>${news ? "News alert" : "Your agent"}</b><span>${time(m.at)}</span></div>
+    <p class="text">${esc(m.text)}</p>${picks.length ? `<div class="picks">${picks.map(pickRow).join("")}</div>` : ""}</div>`
+}
+function resetChat() { st.messages = []; logIn.innerHTML = ""; renderWelcome(); renderSide(); renderPanel(); syncClear() }
+const syncClear = () => { $("clear").hidden = !st.messages.length }
+// Two clicks, no browser dialog: the first arms it for 4 s.
+let clearArm
+$("clear").onclick = async () => {
+  const b = $("clear")
+  if (!clearArm) { b.textContent = "Click again to clear"; b.classList.add("danger"); clearArm = setTimeout(disarm, 4000); return }
+  disarm()
+  const r = await post("/api/chat/clear", {})
+  if (!r.ok) return toast(r.status === 403 ? "Open this page on the server's machine to clear it." : "Couldn't clear the chat.")
+  resetChat(); toast("Chat cleared. Your paper trades are kept.")
+}
+function disarm() { clearTimeout(clearArm); clearArm = null; $("clear").textContent = "Clear chat"; $("clear").classList.remove("danger") }
+function appendMessages(list, first) {
+  syncClear()
+  if (first && !list.length) return renderWelcome()
+  if (!list.length) return settleWaits()
+  $("welcome")?.remove()
+  const stick = first || nearBottom()
+  const t = document.createElement("template")
+  t.innerHTML = list.map(messageHtml).join("")
+  logIn.append(t.content)
+  settleWaits()
+  if (stick) toBottom(!first); else $("jump").hidden = false
+}
+// "Working on it" only while the newest ask is unanswered. Answered: it goes; an older unanswered one says so.
+function settleWaits() {
+  const lastAsk = st.messages.findLast((m) => m.role === "user")?.id
+  for (const el of logIn.querySelectorAll("[data-wait]")) {
+    const id = Number(el.dataset.wait)
+    if (st.messages.some((m) => m.role === "agent" && m.requestId === id)) el.remove()
+    else if (id !== lastAsk) { el.removeAttribute("data-wait"); el.className = "m event warn"; el.textContent = "No answer came back for this one" }
+  }
+}
+const CHIPS = ["Review my portfolio", "What should I buy or sell?", "What about NVDA?", "Any risks this week?"]
+function renderWelcome() {
+  logIn.innerHTML = `<div id="welcome" class="welcome">
+    ${st.owner ? "" : `<div class="connect"><b>Connect your agent first</b><ol>
+      <li>On this machine, run <code>curl -s -X POST http://${esc(location.host)}/api/owner</code></li>
+      <li>Run the <code>claude mcp add …</code> line it prints.</li>
+      <li>In Claude Code, say “watch my Newswire portfolio, and watch all 7 tickers on Newswire”.</li></ol></div>`}
+    <h2>Ask your agent about your stocks</h2>
+    <p>It reads the news Jev rated relevant, weighs it against your thesis notes, and gives you a call per stock. Click a call to see the stories behind it.</p>
+    <div class="chips">${CHIPS.map((c) => `<button type="button" class="chip" data-ask="${esc(c)}">${esc(c)}</button>`).join("")}</div></div>`
+}
+$("jump").onclick = () => toBottom(true)
+log.addEventListener("scroll", () => { if (nearBottom()) $("jump").hidden = true })
+
+// ---------- portfolio ----------
+function renderSide() {
+  const b = st.book; if (!b) return
+  const cost = b.positions.reduce((a, p) => a + p.shares * p.avgCost, 0), held = b.positions.reduce((a, p) => a + p.value, 0)
+  $("total").textContent = usd(b.value)
+  $("cash").innerHTML = `${usd(b.cash)} cash · <span class="${held >= cost ? "up" : "down"}">${pct(cost ? held / cost - 1 : 0)}</span>`
+  $("holds").innerHTML = b.positions.map((p) => {
+    const pk = pickOf(p.ticker), g = p.shares ? p.price / p.avgCost - 1 : null
+    return `<button type="button" class="hrow ${st.open === p.ticker ? "on" : ""}" data-open="${esc(p.ticker)}">
+      <span><span class="t"><span class="tk">${esc(p.ticker)}</span>${pk ? `<span class="dot v-${esc(pk.view)}" title="Agent says ${esc(pk.view)}"></span>` : ""}</span><span class="s">${p.shares ? `${p.shares} shares` : "Watching"}</span></span>
+      <span class="v num">${p.shares ? usd(p.value) : `<span class="muted">${usd(p.price)}</span>`}<span class="s ${g == null ? "" : g >= 0 ? "up" : "down"}">${g == null ? "No position" : pct(g)}</span></span></button>`
+  }).join("")
+}
+
+// ---------- reasoning sheet ----------
+function renderPanel() {
+  const el = $("panel"), t = st.open
+  $("app").classList.toggle("open", !!t); $("scrim").classList.toggle("open", !!t && narrow())
+  for (const n of document.querySelectorAll("[data-pick]")) n.classList.toggle("on", n.dataset.pick === t)
+  for (const n of document.querySelectorAll(".hrow")) n.classList.toggle("on", n.dataset.open === t)
+  if (!t) { el.dataset.t = ""; el.innerHTML = ""; return }
+  const x = st.tickers[t], p = pos(t), pk = pickOf(t)
+  if (!x || !p) return
+  const keepScroll = el.dataset.t === t ? el.scrollTop : 0, focusQty = document.activeElement?.id === "qty"
+  const cited = new Set(pk?.storyIds || []), g = p.shares ? p.price / p.avgCost - 1 : null
+  // The same headline from several outlets or hours is one story here, counted, newest first.
+  const groups = []
+  for (const s of x.stories) {
+    const key = s.headline.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), had = groups.find((g) => g.key === key)
+    if (had) { had.n++; had.cited ||= cited.has(s.storyId) } else groups.push({ key, s, n: 1, cited: cited.has(s.storyId) })
+  }
+  el.dataset.t = t
+  el.innerHTML = `<div class="why">
+    <div>
+      <div class="why-head"><div><h2><span class="tk">${esc(t)}</span>${pk ? call(pk.view) : ""}</h2><div class="company">${esc(x.company)}</div></div><button type="button" class="close" data-act="close" aria-label="Close">✕</button></div>
+      <div class="facts num"><div><span>Demo price</span><b>${usd(p.price)}</b></div><div><span>You hold</span><b>${p.shares || "–"}</b></div><div><span>Return</span><b class="${g == null ? "" : g >= 0 ? "up" : "down"}">${g == null ? "–" : pct(g)}</b></div></div>
+      <div class="trade-acts">${tradeBtns(t)}</div>
+      <div id="ticketBox">${ticketHtml(t)}</div>
+    </div>
+    <section class="sec"><h3 class="label">Agent's call</h3>
+      ${pk ? `<p class="reason">${esc(pk.reasons)}</p><span class="by num">${Math.round(pk.confidence * 100)}% confidence · ${pk.kind === "news" ? "news alert" : "your review"} · ${time(pk.at)}</span>`
+        : `<p class="none">No call yet. Ask your agent about ${esc(t)}.</p>`}</section>
+    <section class="sec"><h3 class="label">News that passed Jev · ${groups.length}</h3><div>
+      ${groups.length ? groups.map(({ s, n, cited: c }) => `<div class="story"><a href="${href(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.headline)}</a>
+        <div class="meta"><span>Relevance <b class="num">${Number(s.relevance).toFixed(2)}</b></span><span>${esc(s.source)}</span><span>${esc(when(s.publishedAt))}</span>${n > 1 ? `<span>${n} copies</span>` : ""}${c ? `<span class="c">Cited</span>` : ""}${s.emitted ? "" : `<span>Held back</span>`}</div></div>`).join("")
+        : `<p class="none">Nothing relevant yet.</p>`}</div></section>
+    <section class="sec"><h3 class="label">Your thesis</h3><ul>${x.thesis.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></section>
+    <section class="sec"><h3 class="label">Views on the news</h3><div>
+      ${x.views.length ? x.views.map((v) => `<div class="vw"><div class="meta">${call(v.view)}<span class="num">${Math.round(v.confidence * 100)}%</span><span>${secs(v.ms)} after the alert</span>${v.decision ? `<span>${v.decision === "approve" ? "Approved" : "Rejected"}</span>` : ""}</div><p>${esc(v.reasons)}</p></div>`).join("")
+        : `<p class="none">None yet. They arrive when news wakes an agent watching ${esc(t)}.</p>`}</div></section>
+    <p class="fine">Informational, not financial advice.</p></div>`
+  el.scrollTop = keepScroll
+  if (focusQty) $("qty")?.focus()
+}
+
+// ---------- paper ticket ----------
+const tradeBtns = (t) => `<button type="button" class="btn buy" data-act="ticket" data-t="${esc(t)}" data-side="buy">Buy</button><button type="button" class="btn sell" data-act="ticket" data-t="${esc(t)}" data-side="sell" ${pos(t)?.shares ? "" : `disabled title="You hold none"`}>Sell</button>`
+function ticketMath(k) {
+  const p = pos(k.t), qty = Number(k.qty), whole = Number.isInteger(qty) && qty > 0, cost = whole ? qty * p.price : 0
+  const err = !whole ? "Enter a whole number of shares." : k.side === "buy" && cost > st.book.cash ? `That's more than your ${usd(st.book.cash)} paper cash.` : k.side === "sell" && qty > p.shares ? `You hold ${p.shares}.` : ""
+  const cashAfter = st.book.cash + (k.side === "buy" ? -cost : cost), sharesAfter = p.shares + (k.side === "buy" ? qty : -qty)
+  return { p, qty, cost, err, cashAfter, sharesAfter, max: k.side === "buy" ? Math.floor(st.book.cash / p.price) : p.shares }
+}
+const mathHtml = (k, m) => `<dt>Est. ${k.side === "buy" ? "cost" : "proceeds"}</dt><dd>${usd(m.cost)}</dd><dt>Cash after</dt><dd>${m.err ? "–" : usd(m.cashAfter)}</dd><dt>${esc(k.t)} after</dt><dd>${m.err ? "–" : m.sharesAfter}</dd>`
+function ticketHtml(t) {
+  const k = st.ticket; if (!k || k.t !== t || !st.book) return ""
+  const m = ticketMath(k)
+  return `<div class="ticket" role="group" aria-label="Paper trade">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="seg"><button type="button" class="buy ${k.side === "buy" ? "on" : ""}" data-act="side" data-side="buy">Buy</button><button type="button" class="sell ${k.side === "sell" ? "on" : ""}" data-act="side" data-side="sell" ${m.p.shares ? "" : "disabled"}>Sell</button></div><span class="fine">Paper trade</span></div>
+    <label class="qty"><input id="qty" type="number" inputmode="numeric" min="1" step="1" value="${esc(k.qty)}" aria-label="Shares"><span class="muted">shares · max <button type="button" class="link" data-act="max" style="padding:0 2px">${m.max}</button></span></label>
+    <dl class="num" id="ticketMath">${mathHtml(k, m)}</dl>
+    <div class="err" id="ticketErr">${esc(k.err || (k.touched ? m.err : ""))}</div>
+    <div class="row"><button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn primary" id="fillBtn" data-act="fill" ${m.err || k.busy ? "disabled" : ""}>${k.busy ? "Placing…" : `Confirm paper ${k.side}`}</button></div></div>`
+}
+const renderTicket = () => { const b = $("ticketBox"); if (b) b.innerHTML = ticketHtml(st.open) }
+function openTicket(t, side, qty = 1) {
+  if (side === "sell" && !pos(t)?.shares) side = "buy"
+  st.ticket = { t, side, qty }
+  st.open === t ? renderTicket() : openPanel(t)
+  requestAnimationFrame(() => { const q = $("qty"); q?.focus(); q?.select() })
+}
+async function fill() {
+  const k = st.ticket; if (!k || k.busy || ticketMath(k).err) return
+  k.busy = true; k.err = ""; renderTicket()
+  const r = await post("/api/trades", { ticker: k.t, side: k.side, qty: Number(k.qty) })
+  k.busy = false
+  if (!r.ok) { k.err = r.message || "Not placed."; return renderTicket() }
+  st.ticket = null; toast(r.message); await poll(); renderPanel()
+}
+
+// ---------- asking ----------
+const q = $("q")
+const sizeBox = () => { q.style.height = "auto"; q.style.height = `${Math.min(q.scrollHeight, 140)}px`; $("send").disabled = !q.value.trim() || st.sending; $("count").textContent = q.value.length > 400 ? `${q.value.length}/500` : "" }
+async function ask(text) {
+  text = text.trim(); if (!text || st.sending) return
+  const m = text.match(/\b(buy|sell)\s+(\d+)\s+(?:shares?\s+(?:of\s+)?)?([a-z]{2,5})\b/i)
+  if (m && tickers().includes(m[3].toUpperCase())) openTicket(m[3].toUpperCase(), m[1].toLowerCase(), Number(m[2]))
+  const typed = q.value
+  st.sending = true; q.value = ""; sizeBox()
+  const r = await post("/api/chat", { text })
+  st.sending = false
+  if (!r.ok) { toast(r.status === 403 ? "Open this page on the server's machine to chat." : r.message || "Not sent."); q.value = typed }
+  sizeBox(); await poll(); toBottom(true)
+}
+const openPanel = (t) => { if (st.ticket && st.ticket.t !== t) st.ticket = null; st.open = t; renderPanel(); $("panel").scrollTop = 0 }
+const closePanel = () => { st.open = null; st.ticket = null; renderPanel() }
+
+// ---------- events ----------
+$("form").addEventListener("submit", (e) => { e.preventDefault(); ask(q.value) })
+q.addEventListener("input", sizeBox)
+q.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(q.value) } })
+$("scrim").onclick = closePanel
+document.addEventListener("keydown", (e) => {
+  if (e.target.id === "qty" && e.key === "Enter") { e.preventDefault(); return fill() }
+  if (e.key !== "Escape") return
+  if (st.ticket) { st.ticket = null; renderTicket() } else if (st.open) closePanel()
+})
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "qty" || !st.ticket) return
+  // The numbers update in place, so typing never loses focus.
+  Object.assign(st.ticket, { qty: e.target.value, err: "", touched: true })
+  const m = ticketMath(st.ticket)
+  $("ticketMath").innerHTML = mathHtml(st.ticket, m)
+  $("ticketErr").textContent = m.err
+  $("fillBtn").disabled = !!m.err
+})
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-ask], [data-act], [data-open]"); if (!el || el.disabled) return
+  if (el.dataset.ask) return ask(el.dataset.ask)
+  const act = el.dataset.act
+  if (act === "ticket") return openTicket(el.dataset.t, el.dataset.side, st.ticket?.t === el.dataset.t ? st.ticket.qty : 1)
+  if (act === "side") { Object.assign(st.ticket, { side: el.dataset.side, err: "" }); return renderTicket() }
+  if (act === "max") { Object.assign(st.ticket, { qty: ticketMath(st.ticket).max || 1, touched: true }); return renderTicket() }
+  if (act === "fill") return fill()
+  if (act === "cancel") { st.ticket = null; return renderTicket() }
+  if (act === "close") return closePanel()
+  if (el.dataset.open) st.open === el.dataset.open ? closePanel() : openPanel(el.dataset.open)
+})
+addEventListener("resize", () => $("scrim").classList.toggle("open", !!st.open && narrow()))
+
+sizeBox(); renderPanel()
+poll()
+setInterval(() => { if (!document.hidden) poll() }, 2000)
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll() })
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+.env
+.env.*
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+.claude/
+chat.prototype.html

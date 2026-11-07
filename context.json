@@ -1,0 +1,9 @@
+{
+ "NVDA": { "position": { "shares": 120, "avgCost": 118.4 }, "price": 182.4, "thesis": ["Demo position. Data center GPU demand is the main driver; watch cloud capex.", "Export rules to China are the biggest known risk."] },
+ "GOOGL": { "position": { "shares": 70, "avgCost": 168.2 }, "price": 191.3, "thesis": ["Demo position. Gemini adoption in Cloud and Search is the AI thesis.", "Antitrust remedies on search deals are the main risk."] },
+ "META": { "position": { "shares": 40, "avgCost": 512.6 }, "price": 598.2, "thesis": ["Demo position. AI-driven ad targeting funds the capex.", "Rising AI capex and EU privacy fines pressure margins."] },
+ "MSFT": { "position": { "shares": 60, "avgCost": 401.7 }, "price": 452.1, "thesis": ["Demo position. Azure growth and the OpenAI partnership drive the thesis.", "Antitrust actions in the EU are a recurring risk."] },
+ "AMD": { "position": { "shares": 150, "avgCost": 142.9 }, "price": 166.8, "thesis": ["Demo position. Winning AI accelerator share from Nvidia is the thesis.", "Export rules and supply at the foundry are the risks."] },
+ "TSLA": { "position": { "shares": 0, "avgCost": 0 }, "price": 312.5, "thesis": ["Demo: no position. Watching autonomy approvals and recall costs."] },
+ "SPCX": { "position": { "shares": 25, "avgCost": 135 }, "price": 148.0, "thesis": ["Demo position from the June 2026 IPO. Starlink subscriber growth carries the valuation.", "Launch failures and the high valuation are the risks."] }
+}
